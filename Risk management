@@ -1,0 +1,173 @@
+from datetime import datetime
+from typing import Dict
+
+
+# -----------------------------
+# Explainability Logger
+# -----------------------------
+class AuditLogger:
+    def log(self, category: str, payload: Dict):
+        timestamp = datetime.utcnow().isoformat()
+        print(f"\n[{timestamp}] {category}")
+        for k, v in payload.items():
+            print(f"  {k}: {v}")
+
+
+# -----------------------------
+# Market Data
+# -----------------------------
+class MarketData:
+    def fetch(self) -> Dict[str, float]:
+        return {
+            "AAPL": 190.0,
+            "MSFT": 410.0,
+            "GOOG": 150.0,
+        }
+
+
+# -----------------------------
+# Signal Engine
+# -----------------------------
+class SignalEngine:
+    def generate(self, prices: Dict[str, float]) -> Dict[str, float]:
+        signals = {}
+        rationale = {}
+
+        for asset, price in prices.items():
+            if price < 200:
+                signals[asset] = 0.05
+                rationale[asset] = "Price below threshold → positive bias"
+            else:
+                signals[asset] = 0.02
+                rationale[asset] = "Neutral price → small allocation"
+
+        return signals, rationale
+
+
+# -----------------------------
+# Portfolio State
+# -----------------------------
+class PortfolioState:
+    def __init__(self, initial_cash: float):
+        self.cash = initial_cash
+        self.positions = {}  # asset -> quantity
+        self.nav = initial_cash
+        self.peak_nav = initial_cash
+
+    def update_nav(self, prices: Dict[str, float]):
+        equity_value = sum(
+            qty * prices.get(asset, 0)
+            for asset, qty in self.positions.items()
+        )
+        self.nav = self.cash + equity_value
+        self.peak_nav = max(self.peak_nav, self.nav)
+
+    def drawdown(self) -> float:
+        return (self.peak_nav - self.nav) / self.peak_nav
+
+
+# -----------------------------
+# Portfolio Engine
+# -----------------------------
+class PortfolioEngine:
+    def build_targets(self, signals: Dict[str, float]) -> Dict[str, float]:
+        total = sum(signals.values())
+        return {k: v / total for k, v in signals.items()} if total else {}
+
+
+# -----------------------------
+# Risk Engine (with Kill Switch)
+# -----------------------------
+class RiskEngine:
+    MAX_WEIGHT = 0.5
+    MAX_DRAWDOWN = 0.15  # 15%
+
+    def validate(self, targets: Dict[str, float]) -> Dict[str, float]:
+        return {
+            asset: min(weight, self.MAX_WEIGHT)
+            for asset, weight in targets.items()
+        }
+
+    def kill_switch(self, portfolio: PortfolioState) -> bool:
+        return portfolio.drawdown() > self.MAX_DRAWDOWN
+
+
+# -----------------------------
+# Paper Trading Broker
+# -----------------------------
+class PaperBroker:
+    def execute(
+        self,
+        portfolio: PortfolioState,
+        target_weights: Dict[str, float],
+        prices: Dict[str, float],
+    ):
+        nav = portfolio.nav
+
+        for asset, target_weight in target_weights.items():
+            target_value = nav * target_weight
+            current_qty = portfolio.positions.get(asset, 0)
+            current_value = current_qty * prices[asset]
+
+            delta_value = target_value - current_value
+            qty_change = delta_value / prices[asset]
+
+            # Execute simulated trade
+            cost = qty_change * prices[asset]
+            portfolio.cash -= cost
+            portfolio.positions[asset] = current_qty + qty_change
+
+
+# -----------------------------
+# Main Control Loop
+# -----------------------------
+def main():
+    logger = AuditLogger()
+    market = MarketData()
+    signals_engine = SignalEngine()
+    portfolio_engine = PortfolioEngine()
+    risk_engine = RiskEngine()
+    broker = PaperBroker()
+
+    portfolio = PortfolioState(initial_cash=1_000_000)
+
+    logger.log("SYSTEM", {"status": "Autonomous Fund Manager started"})
+
+    # ---- One cycle (loop this later) ----
+    prices = market.fetch()
+    portfolio.update_nav(prices)
+
+    logger.log("MARKET_DATA", prices)
+
+    if risk_engine.kill_switch(portfolio):
+        logger.log("KILL_SWITCH", {
+            "nav": portfolio.nav,
+            "drawdown": f"{portfolio.drawdown():.2%}",
+            "action": "Trading halted"
+        })
+        return
+
+    signals, rationale = signals_engine.generate(prices)
+    logger.log("SIGNALS", rationale)
+
+    targets = portfolio_engine.build_targets(signals)
+    logger.log("PORTFOLIO_TARGETS", targets)
+
+    approved = risk_engine.validate(targets)
+    logger.log("RISK_APPROVAL", approved)
+
+    broker.execute(portfolio, approved, prices)
+    portfolio.update_nav(prices)
+
+    logger.log("EXECUTION_RESULT", {
+        "cash": round(portfolio.cash, 2),
+        "positions": portfolio.positions,
+        "nav": round(portfolio.nav, 2),
+        "drawdown": f"{portfolio.drawdown():.2%}"
+    })
+
+    logger.log("CYCLE_COMPLETE", {"status": "OK"})
+
+
+if __name__ == "__main__":
+    main()
